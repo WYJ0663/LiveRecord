@@ -9,7 +9,6 @@ import android.widget.Button;
 
 public class MainActivity extends AppCompatActivity implements SurfaceHolder.Callback {
 
-
     private SurfaceView mSurfaceView;
     private Button mRecordVie;
 
@@ -36,6 +35,27 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                     mRmtpManager.start();
                     mRecordVie.setText("stop");
                 }
+            }
+        });
+
+        findViewById(R.id.init).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                RmtpManager.queuetest();
+            }
+        });
+
+        findViewById(R.id.add).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                RmtpManager.queueadd();
+            }
+        });
+
+        findViewById(R.id.end).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                RmtpManager.queueend();
             }
         });
     }

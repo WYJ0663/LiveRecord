@@ -5,12 +5,19 @@
 #ifndef LIVERECORD_LIVE_X264_H
 #define LIVERECORD_LIVE_X264_H
 
-
+#include <pthread.h>
 #include <libx264/x264.h>
+#include "queue.h"
+#include "live_def.h"
+#include "live_rtmp.h"
 
 typedef struct _live_x264 LiveX264;
 
 struct _live_x264 {
+    LiveRtmp *liveRtmp;
+    pthread_t t;
+    Queue *queue;
+
     x264_picture_t *pic_in;
     x264_picture_t *pic_out;
     x264_t *encoder;

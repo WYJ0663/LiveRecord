@@ -18,4 +18,25 @@
             android:layout_height="wrap_content"
             android:text="start"
             android:layout_gravity="center_horizontal|bottom"/>
+
+    <Button
+            android:id="@+id/init"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="init"
+            android:layout_gravity="left|top"/>
+    <Button
+            android:id="@+id/add"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="add"
+            android:layout_gravity="center_horizontal|top"/>
+
+    <Button
+            android:id="@+id/end"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="end"
+            android:layout_gravity="right|top"/>
+
 </FrameLayout>

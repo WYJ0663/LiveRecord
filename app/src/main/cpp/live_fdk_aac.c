@@ -4,8 +4,48 @@
 
 
 #include <fdk-aac/aacenc_lib.h>
+#include <malloc.h>
 #include "log.h"
 #include "live_fdk_aac.h"
+
+void encode_PCM(LiveAAC *liveAAC, LivePackage *package) {
+    int length = package->length;
+    char *data = package->data;
+
+    LOGE("length = %d", length);
+    int16_t *convert_buf = (int16_t *) malloc(length);
+    for (int i = 0; i < length / 2; i++) {
+        const uint8_t *in = &data[2 * i];
+        convert_buf[i] = in[0] | (in[1] << 8);
+    }
+
+    int outLength = length;
+    uint8_t *out = malloc(outLength);
+    LOGE("outLength1 %d", outLength);
+
+    int len = 0;
+    len = aac_encode_audio(liveAAC, convert_buf, length, out, outLength);
+
+    LOGE("len %d", len);
+
+    pushAudioData(liveAAC->liveRtmp, out, len);
+
+    free(data);
+    free(out);
+}
+
+void *work_audio(void *arg) {
+    LiveAAC *liveAAC = (LiveAAC *) arg;
+    liveAAC->queue = createQueue();
+    while (liveAAC->liveRtmp->is_start) {
+        LivePackage *livePackage = getQueue(liveAAC->queue);
+        encode_PCM(liveAAC, livePackage);
+        free(livePackage);
+    }
+
+    freeQueue(liveAAC->queue);
+    return 0;
+}
 
 
 /**
@@ -108,6 +148,10 @@ int aac_init(LiveAAC *liveAAC, int channels, int sampleRate, int bitRate) {
     LOGE("inputSize = %d", inputSize);
 
     liveAAC->handle = handle;
+
+    //启动线程
+    pthread_create(&liveAAC->t, NULL, work_audio, liveAAC);
+
     return inputSize;
 }
 

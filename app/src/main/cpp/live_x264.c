@@ -8,7 +8,77 @@
 #include "live_x264.h"
 #include "log.h"
 #include "live_rtmp.h"
+#include "yuv_util.h"
 
+void video_push(LiveX264 *liveX264, x264_nal_t *nals, int num_nals) {
+    LOGE("video_call")
+    LiveRtmp *liveRtmp = liveX264->liveRtmp;
+
+    for (int i = 0; i < num_nals; i++) {
+        switch (nals[i].i_type) {
+            case NAL_SLICE:
+                LOGE("push P data")
+                pushVideoData(liveRtmp, nals[i].p_payload, nals[i].i_payload, 0);
+                break;
+            case NAL_SLICE_IDR:
+                LOGE("push I data")
+                pushSPSPPS(liveRtmp, liveX264->sps, liveX264->sps_len,
+                           liveX264->pps, liveX264->pps_len);
+                pushVideoData(liveRtmp, nals[i].p_payload, nals[i].i_payload, 1);
+                break;
+            case NAL_SPS:
+                LOGE("push SPS data")
+                liveX264->sps = nals[i].p_payload;
+                liveX264->sps_len = nals[i].i_payload;
+                break;
+            case NAL_PPS:
+                LOGE("push PPS data")
+                liveX264->pps = nals[i].p_payload;
+                liveX264->pps_len = nals[i].i_payload;
+                break;
+        }
+    }
+}
+
+void encode_NV21(LiveX264 *liveX264, LivePackage *package) {
+    int length = package->length;
+    char *data = package->data;
+
+    char *I420 = (char *) (malloc(length * sizeof(char)));
+    char *I420_90 = (char *) (malloc(length * sizeof(char)));
+
+    NV21ToI420(I420, data, length);
+    YUV420Rotate90(I420_90, I420, liveX264->width, liveX264->height);
+
+    LOGE("NV21ToI420 length %d ", length)
+    char *out = (char *) malloc(length * sizeof(char));
+    int *len = malloc(10 * sizeof(int));
+
+    int num_nals = x264_encode(liveX264, I420_90, liveX264->pts, out, len);
+
+    liveX264->pts++;
+
+    free(data);
+    free(out);
+    free(len);
+    free(I420);
+    free(I420_90);
+}
+
+void *work_video(void *arg) {
+    LiveX264 *liveX264 = (LiveX264 *) arg;
+    liveX264->queue = createQueue();
+
+    while (liveX264->liveRtmp->is_start) {
+        LivePackage *livePackage = getQueue(liveX264->queue);
+        encode_NV21(liveX264, livePackage);
+        free(livePackage);
+    }
+
+    freeQueue(liveX264->queue);
+
+    return 0;
+}
 
 x264_param_t setParams(LiveX264 *liveX264) {
     x264_param_t params;
@@ -133,12 +203,17 @@ int x264_init(LiveX264 *liveX264, int mWidth, int mHeight, int bitrate, int orie
         return 0;
     }
 
+    //启动线程
+    pthread_create(&liveX264->t, NULL, work_video, liveX264);
+
+    return 1;
 }
 
 //编码h264帧
 int x264_encode(LiveX264 *liveX264, char *inBytes, int pts, char *outBytes, int *outFrameSize) {
     int num_nals = 0;
     x264_nal_t *nals;
+
     //YUV420P数据转化为h264
     int i420_y_size = liveX264->width * liveX264->height;
     int i420_u_size = (liveX264->width >> 1) * (liveX264->height >> 1);
@@ -159,8 +234,9 @@ int x264_encode(LiveX264 *liveX264, char *inBytes, int pts, char *outBytes, int 
                                          liveX264->pic_out);
     LOGE("encodeFrame data %d num_nals %d", frame_size, num_nals);
     if (frame_size) {
-        liveX264->video_call(nals,num_nals);
-        /*Here first four bytes proceeding the nal unit indicates frame length*/
+        if (num_nals > 0 && nals != 0) {
+            video_push(liveX264, nals, num_nals);
+        }
         return num_nals;
     }
     return -1;

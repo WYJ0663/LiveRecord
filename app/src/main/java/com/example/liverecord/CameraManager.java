@@ -5,6 +5,7 @@ import android.graphics.ImageFormat;
 import android.hardware.Camera;
 import android.os.Bundle;
 import android.os.Handler;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -17,10 +18,11 @@ import java.util.List;
  * 录制视频x264编码
  */
 public class CameraManager implements IManager {
-    private static final int width = 1280;
-    private static final int height = 720;
+    private static final int width = 640;
+    private static final int height = 480;
+
     private static final int framerate = 30;
-    private static final int biterate = 128;
+    private static final int biterate = 256;
 
     private Camera mCamera;
     private boolean mIsRecord = false;
@@ -43,6 +45,10 @@ public class CameraManager implements IManager {
             mCamera.cancelAutoFocus();
             // setCameraDisplayOrientation(this, 0, camera);
             Camera.Parameters parameters = mCamera.getParameters();
+
+            Camera.Size size = getOptimalSize(parameters.getSupportedPreviewSizes(), width, height);
+
+
             parameters.setPreviewFormat(ImageFormat.NV21);
             parameters.setPreviewSize(width, height);
             parameters.setPictureSize(width, height);
@@ -66,13 +72,44 @@ public class CameraManager implements IManager {
 //                                pushYUV420(bytes, bytes.length);
                             }
                         });
-                        pushYUV420(bytes, bytes.length);
+                        pushNV21(bytes, bytes.length);
                     }
                 }
             });
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+//             size.width =1920  size.height=1080
+//             size.width =1440  size.height=1080
+//             size.width =1280  size.height=960
+//             size.width =1280  size.height=720
+//             size.width =960  size.height=720
+//             size.width =720  size.height=720
+//             size.width =640  size.height=480
+//             size.width =352  size.height=288
+//             size.width =320  size.height=240
+//             size.width =208  size.height=144
+//             size.width =176  size.height=144
+
+    private static Camera.Size getOptimalSize(List<Camera.Size> sizes, int w, int h) {
+        final double ASPECT_TOLERANCE = 0.1;
+        double targetRatio = (double) h / w;
+        Camera.Size optimalSize = null;
+        double minDiff = Double.MAX_VALUE;
+
+        for (Camera.Size size : sizes) {
+            Log.e("yijun", "size.width=" + size.width + "  size.height=" + size.height);
+            double ratio = (double) size.width / size.height;
+            double de = Math.abs(ratio - targetRatio);
+            if (de < minDiff) {
+                optimalSize = size;
+                minDiff = de;
+            }
+        }
+
+        return optimalSize;
     }
 
     public void start() {
@@ -99,7 +136,7 @@ public class CameraManager implements IManager {
     //orientation 0, 90, 180, and 270.
     public native void videoInit(int width, int height, int bitrate, int orientation);
 
-    public native void pushYUV420(byte[] bytes, int length);
+    public native void pushNV21(byte[] bytes, int length);
 
     public native void videoRelease();
 }

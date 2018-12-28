@@ -18,7 +18,7 @@ public class RmtpManager implements IManager {
         mHandlerThread.start();
         mHandler = new Handler(mHandlerThread.getLooper());
 
-        _init("rtmp://172.17.12.113:7777/live/room");
+        _init("rtmp://172.17.11.60:7777/live/room");
 
         mAudioManager = new AudioManager(mHandler);
         mCameraManager = new CameraManager(mHandler);
@@ -45,7 +45,7 @@ public class RmtpManager implements IManager {
 
     @Override
     public void release() {
-//        mAudioManager.release();
+        mAudioManager.release();
         mCameraManager.release();
         _release();
     }
@@ -56,8 +56,13 @@ public class RmtpManager implements IManager {
     }
 
 
-    public native int _init(String url);
+    public native void _init(String url);
 
     public native void _release();
 
+    public static native void queuetest();
+
+    public static native void queueadd();
+
+    public static native void queueend();
 }

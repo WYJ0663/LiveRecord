@@ -21,6 +21,9 @@ add_library( # Sets the name of the library.
         live_x264.c
         live_rtmp.c
         live_fdk_aac.c
+
+        queue.c
+        yuv_util.c
         )
 
 # Searches for a specified prebuilt library and stores the path as a

@@ -5,11 +5,19 @@
 #ifndef LIVERECORD_LIVE_FDK_AAC_H
 #define LIVERECORD_LIVE_FDK_AAC_H
 
+#include <pthread.h>
 #include <fdk-aac/aacenc_lib.h>
 #include "log.h"
+#include "queue.h"
+#include "live_def.h"
+#include "live_rtmp.h"
 
 
 struct _live_aac {
+    LiveRtmp *liveRtmp;
+    pthread_t t;
+    Queue *queue;
+
     HANDLE_AACENCODER handle;
     int channels;
     int sample_rate;

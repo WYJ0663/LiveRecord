@@ -6,11 +6,29 @@
 #define LIVERECORD_LIVE_RTMP_H
 
 #include <librtmp/rtmp.h>
+#include "queue.h"
+#include "live_def.h"
+
+
+#define TYPE_NV21 1
+#define TYPE_PCM 2
 
 struct _live_rtmp {
     RTMP *rtmp;
     uint32_t start_time;
+
+    bool is_start;
+    pthread_t t;
+    Queue *queue;
+
+
 } typedef LiveRtmp;
+
+struct _live_package {
+    int type;
+    char *data;
+    int length;
+} typedef LivePackage;
 
 void rtmp_init(LiveRtmp *liveRtmp, unsigned char *url);
 

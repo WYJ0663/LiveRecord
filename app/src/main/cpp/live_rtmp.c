@@ -1,15 +1,46 @@
 //不能多线程推流
 // Created by yijunwu on 2018/12/3.
 //
-
-#include "live_rtmp.h"
-#include "log.h"
 #include <librtmp/rtmp.h>
 #include <malloc.h>
 #include <memory.h>
+#include <pthread.h>
+#include "live_rtmp.h"
+#include "log.h"
+#include "yuv_util.h"
 
-void rtmp_init(LiveRtmp *liveRtmp,unsigned char *url) {
-    RTMP * rtmp = RTMP_Alloc();
+void *work_handle(void *arg) {
+    LiveRtmp *liveRtmp = (LiveRtmp *) arg;
+
+    liveRtmp->queue = createQueue();
+
+    while (liveRtmp->is_start) {
+        RTMPPacket *rtmpPacket = getQueue(liveRtmp->queue);
+
+        /*发送*/
+        int nRet = 0;
+        if (RTMP_IsConnected(liveRtmp->rtmp)) {
+            nRet = RTMP_SendPacket(liveRtmp->rtmp, rtmpPacket, TRUE); /*TRUE为放进发送队列,FALSE是不放进发送队列,直接发送*/
+        }
+        /*释放内存*/
+        RTMPPacket_Free(rtmpPacket);
+        free(rtmpPacket);
+
+        LOGER("pushVideoData %d %d", nRet, RTMP_IsConnected(liveRtmp->rtmp));
+    }
+
+    freeQueue(liveRtmp->queue);
+
+    return NULL;
+}
+
+void create_queue(LiveRtmp *liveRtmp) {
+    liveRtmp->is_start = true;
+    pthread_create(&liveRtmp->t, NULL, work_handle, liveRtmp);
+}
+
+void rtmp_init(LiveRtmp *liveRtmp, unsigned char *url) {
+    RTMP *rtmp = RTMP_Alloc();
     RTMP_Init(rtmp);
 
     rtmp->Link.timeout = 5;
@@ -30,27 +61,37 @@ void rtmp_init(LiveRtmp *liveRtmp,unsigned char *url) {
     liveRtmp->start_time = RTMP_GetTime();
     LOGE(" start_time = %d", liveRtmp->start_time);
     liveRtmp->rtmp = rtmp;
+
+    create_queue(liveRtmp);
 }
 
-void pushSPSPPS(LiveRtmp *liveRtmp,char *sps, int spsLen, char *pps, int ppsLen) {
-    if (sps[2] == 0x00) {
-        //00 00 00 01
-        sps += 4;
-        spsLen -= 4;
-    } else if (sps[2] == 0x01) {
-        // 00 00 01
-        sps += 3;
-        spsLen -= 3;
+int formVideo(char *data, int len) {
+    if (data[0] == 0x00 && data[1] == 0x00) {
+        if (data[2] == 0x00 && data[3] == 0x01) {
+            //00 00 00 01
+//        data = data + 4;
+//        len -= 4;
+            return 4;
+        } else if (data[2] == 0x01) {
+            // 00 00 01
+//        data += 3;
+//        len -= 3;
+            return 3;
+        }
     }
-    if (pps[2] == 0x00) {
-        //00 00 00 01
-        pps += 4;
-        ppsLen -= 4;
-    } else if (pps[2] == 0x01) {
-        // 00 00 01
-        pps += 3;
-        ppsLen -= 3;
-    }
+
+    return 0;
+}
+
+void pushSPSPPS(LiveRtmp *liveRtmp, char *sps, int spsLen, char *pps, int ppsLen) {
+    int s = formVideo(sps, spsLen);
+    sps += s;
+    spsLen -= s;
+
+    int p = formVideo(pps, ppsLen);
+    pps += p;
+    ppsLen -= p;
+
     int bodySize = spsLen + ppsLen + 16;
     RTMPPacket *rtmpPacket = (RTMPPacket *) malloc(sizeof(RTMPPacket));
     RTMPPacket_Alloc(rtmpPacket, bodySize);
@@ -111,29 +152,24 @@ void pushSPSPPS(LiveRtmp *liveRtmp,char *sps, int spsLen, char *pps, int ppsLen)
     rtmpPacket->m_headerType = RTMP_PACKET_SIZE_MEDIUM;
     rtmpPacket->m_nInfoField2 = liveRtmp->rtmp->m_stream_id;
 
-    /*发送*/
-    int nRet = 0;
-    if (RTMP_IsConnected(liveRtmp->rtmp)) {
-        nRet = RTMP_SendPacket(liveRtmp->rtmp, rtmpPacket, TRUE); /*TRUE为放进发送队列,FALSE是不放进发送队列,直接发送*/
-    }
-    /*释放内存*/
-    free(rtmpPacket);
+    putQueue(liveRtmp->queue,rtmpPacket);
 
-    LOGER("pushSPSPPS %d %d", nRet,RTMP_IsConnected(liveRtmp->rtmp));
+//    /*发送*/
+//    int nRet = 0;
+//    if (RTMP_IsConnected(liveRtmp->rtmp)) {
+//        nRet = RTMP_SendPacket(liveRtmp->rtmp, rtmpPacket, TRUE); /*TRUE为放进发送队列,FALSE是不放进发送队列,直接发送*/
+//    }
+//    /*释放内存*/
+//    free(rtmpPacket);
+//
+//    LOGER("pushSPSPPS %d %d", nRet, RTMP_IsConnected(liveRtmp->rtmp));
 }
 
 
-void pushVideoData(LiveRtmp *liveRtmp,char *data, int dataLen, int keyFrame) {
-
-    if (data[2] == 0x00) {
-        //00 00 00 01
-        data += 4;
-        dataLen -= 4;
-    } else if (data[2] == 0x01) {
-        // 00 00 01
-        data += 3;
-        dataLen -= 3;
-    }
+void pushVideoData(LiveRtmp *liveRtmp, char *data, int dataLen, int keyFrame) {
+    int p = formVideo(data, dataLen);
+    data += p;
+    dataLen -= p;
 
     int bodySize = dataLen + 9;
     RTMPPacket *rtmpPacket = (RTMPPacket *) malloc(sizeof(RTMPPacket));
@@ -177,18 +213,20 @@ void pushVideoData(LiveRtmp *liveRtmp,char *data, int dataLen, int keyFrame) {
     rtmpPacket->m_headerType = RTMP_PACKET_SIZE_LARGE;
     rtmpPacket->m_nInfoField2 = liveRtmp->rtmp->m_stream_id;
 
-    /*发送*/
-    int nRet = 0;
-    if (RTMP_IsConnected(liveRtmp->rtmp)) {
-        nRet = RTMP_SendPacket(liveRtmp->rtmp, rtmpPacket, TRUE); /*TRUE为放进发送队列,FALSE是不放进发送队列,直接发送*/
-    }
-    /*释放内存*/
-    free(rtmpPacket);
+    putQueue(liveRtmp->queue,rtmpPacket);
 
-    LOGER("pushVideoData %d %d", nRet,RTMP_IsConnected(liveRtmp->rtmp));
+//    /*发送*/
+//    int nRet = 0;
+//    if (RTMP_IsConnected(liveRtmp->rtmp)) {
+//        nRet = RTMP_SendPacket(liveRtmp->rtmp, rtmpPacket, TRUE); /*TRUE为放进发送队列,FALSE是不放进发送队列,直接发送*/
+//    }
+//    /*释放内存*/
+//    free(rtmpPacket);
+//
+//    LOGER("pushVideoData %d %d", nRet, RTMP_IsConnected(liveRtmp->rtmp));
 }
 
-void pushAudioData(LiveRtmp *liveRtmp,char *data, int dataLen) {
+void pushAudioData(LiveRtmp *liveRtmp, char *data, int dataLen) {
 
     int bodySize = dataLen + 2;
     RTMPPacket *rtmpPacket = (RTMPPacket *) malloc(sizeof(RTMPPacket));
@@ -220,15 +258,18 @@ void pushAudioData(LiveRtmp *liveRtmp,char *data, int dataLen) {
     rtmpPacket->m_headerType = RTMP_PACKET_SIZE_LARGE;
     rtmpPacket->m_nInfoField2 = liveRtmp->rtmp->m_stream_id;
 
-    /*发送*/
-    int nRet = 0;
-    if (RTMP_IsConnected(liveRtmp->rtmp)) {
-        nRet = RTMP_SendPacket(liveRtmp->rtmp, rtmpPacket, TRUE); /*TRUE为放进发送队列,FALSE是不放进发送队列,直接发送*/
-    }
-    /*释放内存*/
-    free(rtmpPacket);
 
-    LOGER("pushAudioData %d %d", nRet,RTMP_IsConnected(liveRtmp->rtmp));
+    putQueue(liveRtmp->queue,rtmpPacket);
+
+//    /*发送*/
+//    int nRet = 0;
+//    if (RTMP_IsConnected(liveRtmp->rtmp)) {
+//        nRet = RTMP_SendPacket(liveRtmp->rtmp, rtmpPacket, TRUE); /*TRUE为放进发送队列,FALSE是不放进发送队列,直接发送*/
+//    }
+//    /*释放内存*/
+//    free(rtmpPacket);
+//
+//    LOGER("pushAudioData %d %d", nRet, RTMP_IsConnected(liveRtmp->rtmp));
 }
 
 void rtmp_release(LiveRtmp *liveRtmp) {
