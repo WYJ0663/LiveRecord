@@ -5,11 +5,6 @@
 #define QUEUE_H
 #include <pthread.h>
 
-//存储的数量限制
-
-#define MAX_QUEUE_SIZE 1000
-#define MIN_QUEUE_SIZE 500
-
 typedef struct item {
     void *data;
     struct item *next;

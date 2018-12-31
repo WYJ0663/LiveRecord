@@ -22,7 +22,7 @@ public class CameraManager implements IManager {
     private static final int height = 480;
 
     private static final int framerate = 30;
-    private static final int biterate = 256;
+    private static final int biterate = 1024;
 
     private Camera mCamera;
     private boolean mIsRecord = false;

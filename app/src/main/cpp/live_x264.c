@@ -26,16 +26,16 @@ void video_push(LiveX264 *liveX264, x264_nal_t *nals, int num_nals) {
                            liveX264->pps, liveX264->pps_len);
                 pushVideoData(liveRtmp, nals[i].p_payload, nals[i].i_payload, 1);
                 break;
-            case NAL_SPS:
-                LOGE("push SPS data")
-                liveX264->sps = nals[i].p_payload;
-                liveX264->sps_len = nals[i].i_payload;
-                break;
-            case NAL_PPS:
-                LOGE("push PPS data")
-                liveX264->pps = nals[i].p_payload;
-                liveX264->pps_len = nals[i].i_payload;
-                break;
+//            case NAL_SPS:
+//                LOGE("1head push SPS data %d", nals[i].i_payload);
+//                liveX264->sps_len = nals[i].i_payload;
+//                memcpy(liveX264->sps, nals[i].p_payload, nals[i].i_payload);
+//                break;
+//            case NAL_PPS:
+//                LOGE("1head push PPS data %d", nals[i].i_payload)
+//                liveX264->pps_len = nals[i].i_payload;
+//                memcpy(liveX264->pps, nals[i].p_payload, nals[i].i_payload);
+//                break;
         }
     }
 }
@@ -54,7 +54,7 @@ void encode_NV21(LiveX264 *liveX264, LivePackage *package) {
     char *out = (char *) malloc(length * sizeof(char));
     int *len = malloc(10 * sizeof(int));
 
-    int num_nals = x264_encode(liveX264, I420_90, liveX264->pts, out, len);
+    int num_nals = x264_encode(liveX264, I420_90, out, len);
 
     liveX264->pts++;
 
@@ -112,7 +112,7 @@ x264_param_t setParams(LiveX264 *liveX264) {
 
     //并行编码多帧
     params.i_threads = X264_SYNC_LOOKAHEAD_AUTO;
-    params.i_fps_num = 25;//getFps();
+    params.i_fps_num = FPS;//getFps();
     params.i_fps_den = 1;
 
     // B frames 两个相关图像间B帧的数目 */
@@ -123,9 +123,9 @@ x264_param_t setParams(LiveX264 *liveX264) {
     params.i_timebase_den = params.i_fps_num;
 
     // Intra refres:
-    params.i_keyint_max = 25;
+    params.i_keyint_max = FPS;
     params.i_keyint_min = 1;
-    params.b_intra_refresh = 1;
+    params.b_intra_refresh = 0;
 
     //参数i_rc_method表示码率控制，CQP(恒定质量)，CRF(恒定码率)，ABR(平均码率)
     //恒定码率，会尽量控制在固定码率
@@ -140,7 +140,7 @@ x264_param_t setParams(LiveX264 *liveX264) {
     params.rc.i_bitrate = liveX264->bitrate / 1000;
     //瞬时最大码率,平均码率模式下，最大瞬时码率，默认0(与-B设置相同)
     params.rc.i_vbv_max_bitrate = liveX264->bitrate / 1000 * 1.2;
-    params.b_repeat_headers = 1;
+    params.b_repeat_headers = 0;
     params.b_annexb = 1;
 
     //是否把SPS和PPS放入每一个关键帧
@@ -162,6 +162,9 @@ x264_param_t setParams(LiveX264 *liveX264) {
 
 
 int x264_init(LiveX264 *liveX264, int mWidth, int mHeight, int bitrate, int orientation) {
+    liveX264->sps = 0;
+    liveX264->pps = 0;
+
     liveX264->width = mWidth;
     liveX264->height = mHeight;
     liveX264->bitrate = bitrate;
@@ -169,9 +172,6 @@ int x264_init(LiveX264 *liveX264, int mWidth, int mHeight, int bitrate, int orie
     LOGE("video encoder setting width %d height %d bitrate %d orientation %d",
          liveX264->width, liveX264->height, liveX264->bitrate, liveX264->orientation);
 
-    int r = 0;
-    int nheader = 0;
-    int header_size = 0;
 
     if (liveX264->encoder) {
         LOGE("Already opened. first call close()");
@@ -196,13 +196,28 @@ int x264_init(LiveX264 *liveX264, int mWidth, int mHeight, int bitrate, int orie
     }
 
     x264_nal_t *nals;
-    // write headers
-    r = x264_encoder_headers(liveX264->encoder, &nals, &nheader);
-    if (r < 0) {
+    int num_nals;
+    int frame_size = x264_encoder_headers(liveX264->encoder, &nals, &num_nals);
+    if (frame_size <= 0) {
         LOGE("x264_encoder_headers() failed");
         return 0;
     }
-
+    for (int i = 0; i < num_nals; i++) {
+        switch (nals[i].i_type) {
+            case NAL_SPS:
+                LOGE("head push SPS data %d", nals[i].i_payload);
+                liveX264->sps_len = nals[i].i_payload;
+                liveX264->sps = malloc(nals[i].i_payload * 10);
+                memcpy(liveX264->sps, nals[i].p_payload, nals[i].i_payload);
+                break;
+            case NAL_PPS:
+                LOGE("head push PPS data %d", nals[i].i_payload)
+                liveX264->pps_len = nals[i].i_payload;
+                liveX264->pps = malloc(nals[i].i_payload * 10);
+                memcpy(liveX264->pps, nals[i].p_payload, nals[i].i_payload);
+                break;
+        }
+    }
     //启动线程
     pthread_create(&liveX264->t, NULL, work_video, liveX264);
 
@@ -210,7 +225,7 @@ int x264_init(LiveX264 *liveX264, int mWidth, int mHeight, int bitrate, int orie
 }
 
 //编码h264帧
-int x264_encode(LiveX264 *liveX264, char *inBytes, int pts, char *outBytes, int *outFrameSize) {
+int x264_encode(LiveX264 *liveX264, char *inBytes, char *outBytes, int *outFrameSize) {
     int num_nals = 0;
     x264_nal_t *nals;
 
@@ -228,7 +243,7 @@ int x264_encode(LiveX264 *liveX264, char *inBytes, int pts, char *outBytes, int 
     memcpy(liveX264->pic_in->img.plane[2], i420_v_data, i420_v_size);
     LOGE("encodeFrame data");
     // and encode and store into pic_out
-    liveX264->pic_in->i_pts = pts;
+    liveX264->pic_in->i_pts = liveX264->pts;
     //最主要的函数，x264编码，pic_in为x264输入，pic_out为x264输出
     int frame_size = x264_encoder_encode(liveX264->encoder, &nals, &num_nals, liveX264->pic_in,
                                          liveX264->pic_out);
@@ -249,4 +264,10 @@ int x264_release(LiveX264 *liveX264) {
     x264_picture_clean(liveX264->pic_out);
     free(liveX264->pic_in);
     free(liveX264->pic_out);
+    if (liveX264->sps) {
+        free(liveX264->sps);
+    }
+    if (liveX264->pps) {
+        free(liveX264->pps);
+    }
 }

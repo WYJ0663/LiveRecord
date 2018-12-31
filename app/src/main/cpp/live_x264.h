@@ -11,6 +11,7 @@
 #include "live_def.h"
 #include "live_rtmp.h"
 
+#define FPS 25
 typedef struct _live_x264 LiveX264;
 
 struct _live_x264 {
@@ -40,7 +41,7 @@ struct _live_x264 {
 
 int x264_init(LiveX264 *liveX264, int mWidth, int mHeight, int bitrate, int orientation);
 
-int x264_encode(LiveX264 *liveX264, char *inBytes, int pts, char *outBytes, int *outFrameSize);
+int x264_encode(LiveX264 *liveX264, char *inBytes, char *outBytes, int *outFrameSize);
 
 int x264_release(LiveX264 *liveX264);
 
